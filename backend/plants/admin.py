@@ -1,3 +1,6 @@
 from django.contrib import admin
-
-# Register your models here.
+from .models import Plant,Pot,Reading,Command
+admin.site.register(Plant)
+admin.site.register(Pot)
+admin.site.register(Reading)
+admin.site.register(Command)
