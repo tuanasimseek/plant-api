@@ -1,6 +1,4 @@
 from django.contrib import admin
-from .models import Plant,Pot,Reading,Command
+from .models import Plant
+
 admin.site.register(Plant)
-admin.site.register(Pot)
-admin.site.register(Reading)
-admin.site.register(Command)
