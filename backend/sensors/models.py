@@ -13,8 +13,9 @@ class SensorReading(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.pot.name} - {self.recorded_at}"
-    
+        return f"Pot {self.pot.id} - {self.recorded_at}"
+
+
 class WateringHistory(models.Model):
     TRIGGER_CHOICES = (
         ('automatic', 'Automatic'),
@@ -29,4 +30,4 @@ class WateringHistory(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.pot.name} - {self.trigger_type} - {self.watered_at}"
+        return f"Pot {self.pot.id} - {self.trigger_type} - {self.watered_at}"
