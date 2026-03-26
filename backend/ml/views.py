@@ -1,3 +1,276 @@
-from django.shortcuts import render
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 
-# Create your views here.
+from .models import StateMachineConfig, SimulationResult, OptimalDecision, DigitalTwinStatus
+from .serializers import (
+    StateMachineConfigSerializer,
+    SimulationResultSerializer,
+    OptimalDecisionSerializer,
+    DigitalTwinStatusSerializer,
+)
+from pots.models import Pot
+
+
+class StateMachineConfigView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        config = StateMachineConfig.objects.first()
+        if not config:
+            return Response({
+                "status": "error",
+                "message": "Config bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+        serializer = StateMachineConfigSerializer(config)
+        return Response({
+            "status": "success",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        config = StateMachineConfig.objects.first()
+        if not config:
+            config = StateMachineConfig.objects.create()
+        serializer = StateMachineConfigSerializer(config, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "status": "success",
+                "message": "State machine configuration updated successfully"
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UpdateStateMachineConfigView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        config = StateMachineConfig.objects.first()
+        if not config:
+            config = StateMachineConfig.objects.create()
+
+        serializer = StateMachineConfigSerializer(config, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "status": "success",
+                "message": "State machine configuration updated successfully"
+            }, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GetLatestDecisionMechanismView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        config = StateMachineConfig.objects.order_by('-updated_at').first()
+        if not config:
+            return Response({
+                "status": "error",
+                "message": "Config bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StateMachineConfigSerializer(config)
+        return Response({
+            "status": "success",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+class GetSimulationParamsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "status": "success",
+            "data": {
+                "growth_factor": 1.2,
+                "moisture_effect": 0.8,
+                "light_effect": 0.9,
+                "temperature_effect": 0.7,
+                "update_interval_seconds": 60
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class SendSimulationResultsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        pot_id = request.data.get('pot_id')
+
+        try:
+            pot = Pot.objects.get(id=pot_id)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        result = SimulationResult.objects.create(
+            pot=pot,
+            predicted_growth_cm=request.data.get('predicted_growth_cm'),
+            recommended_watering_ml=request.data.get('recommended_watering_ml'),
+            confidence=request.data.get('confidence'),
+            simulation_time=request.data.get('simulation_time'),
+        )
+
+        return Response({
+            "status": "success",
+            "message": "Simulation results saved successfully"
+        }, status=status.HTTP_201_CREATED)
+
+
+class GetSimulationResultsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pot_id):
+        try:
+            pot = Pot.objects.get(id=pot_id)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        results = SimulationResult.objects.filter(pot=pot).order_by('-simulation_time')
+        serializer = SimulationResultSerializer(results, many=True)
+
+        return Response({
+            "status": "success",
+            "data": {
+                "pot_id": pot.id,
+                "simulation_results": serializer.data
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class EvaluateOptimalDecisionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        pot_id = request.data.get('pot_id')
+        soil_moisture = request.data.get('soil_moisture', 0)
+
+        try:
+            pot = Pot.objects.get(id=pot_id)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        config = StateMachineConfig.objects.first()
+        threshold = config.moisture_threshold if config else 30
+
+        watering_needed = float(soil_moisture) < float(threshold)
+
+        return Response({
+            "status": "success",
+            "data": {
+                "watering_needed": watering_needed,
+                "recommended_watering_ml": 220 if watering_needed else 0,
+                "light_adjustment": "increase",
+                "temperature_adjustment": "none",
+                "confidence": 0.86
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class SaveOptimalDecisionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        pot_id = request.data.get('pot_id')
+
+        try:
+            pot = Pot.objects.get(id=pot_id)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        OptimalDecision.objects.create(
+            pot=pot,
+            watering_needed=request.data.get('watering_needed', False),
+            recommended_watering_ml=request.data.get('recommended_watering_ml'),
+            light_adjustment=request.data.get('light_adjustment', 'none'),
+            temperature_adjustment=request.data.get('temperature_adjustment', 'none'),
+            confidence=request.data.get('confidence'),
+        )
+
+        return Response({
+            "status": "success",
+            "message": "Optimal decision saved successfully"
+        }, status=status.HTTP_201_CREATED)
+
+
+class SendDigitalTwinStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        pot_id = request.data.get('pot_id')
+
+        try:
+            pot = Pot.objects.get(id=pot_id)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        twin, _ = DigitalTwinStatus.objects.update_or_create(
+            pot=pot,
+            defaults={
+                'health_score': request.data.get('health_score'),
+                'growth_stage': request.data.get('growth_stage'),
+                'predicted_height_cm': request.data.get('predicted_height_cm'),
+                'water_status': request.data.get('water_status'),
+                'simulation_state': request.data.get('simulation_state', 'stable'),
+            }
+        )
+
+        return Response({
+            "status": "success",
+            "message": "Digital twin status saved successfully"
+        }, status=status.HTTP_201_CREATED)
+
+
+class GetDigitalTwinStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        pot_id
+
+
+class SaveBestOptimizationConfigView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        pot_id = request.data.get('pot_id')
+
+        try:
+            pot = Pot.objects.get(id=pot_id)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        OptimalDecision.objects.create(
+            pot=pot,
+            watering_needed=True,
+            recommended_watering_ml=request.data.get('optimal_watering_duration', 5) * 50,
+            light_adjustment='none',
+            temperature_adjustment='none',
+            confidence=request.data.get('optimization_score'),
+            model_version=request.data.get('model_version'),
+        )
+
+        return Response({
+            "status": "success",
+            "message": "Best optimization configuration saved"
+        }, status=status.HTTP_201_CREATED)
