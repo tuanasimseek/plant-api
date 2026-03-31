@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +26,7 @@ SECRET_KEY = "django-insecure-2sq^mpf$mlt@xd&^=(tx4k(f)4-9i+q=#knl9j(fw7z_))cth4
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost","10.245.1.244","192.168.251.137"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost","10.245.1.244","192.168.251.137","10.245.4.112"]
 
 
 # Application definition
@@ -48,6 +49,7 @@ INSTALLED_APPS = [
     "ai",
     "notifications",
     "ml",
+    "rest_framework_simplejwt.token_blacklist",
 ]
 
 MIDDLEWARE = [
@@ -89,7 +91,7 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "smartpot_db",
         "USER": "postgres",
-        "PASSWORD": "smartpot123",
+        "PASSWORD": "Postgres123",
         "HOST": "localhost",
         "PORT": "5432",
     }
@@ -147,3 +149,10 @@ AUTH_USER_MODEL = 'users.User'
 
 
 
+SIMPLE_JWT ={
+    'ACCESS_TOKEN_LIFETIME' : timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME' : timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS' : True,
+    'BLACKLIST_AFTER_ROTATION' : True,
+    'AUTH_HEADER_TYPES' : ('Bearer',),
+}

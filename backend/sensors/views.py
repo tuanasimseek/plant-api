@@ -96,37 +96,16 @@ class GetPotConfigView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class UpdateDeviceStatusView(APIView):
-    permission_classes = []
+class PotStatusView(APIView):
+    """
+    GET  -> Mobil / Web / Unity durum görüntüleme
+    PATCH -> ESP cihaz durum güncelleme
+    """
 
-    def patch(self, request, pot_id):
-        device, error = get_device_from_token(request)
-        if error:
-            return error
-
-        try:
-            pot = Pot.objects.get(id=pot_id, device=device)
-        except Pot.DoesNotExist:
-            return Response({
-                "status": "error",
-                "message": "Saksı bulunamadı."
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        device.status = request.data.get('device_status', device.status)
-        device.is_watering = request.data.get('is_watering', device.is_watering)
-        device.last_action = request.data.get('last_action', device.last_action)
-        device.battery_level = request.data.get('battery_level', device.battery_level)
-        device.last_seen_at = timezone.now()
-        device.save()
-
-        return Response({
-            "status": "success",
-            "message": "Device status updated successfully"
-        }, status=status.HTTP_200_OK)
-
-
-class GetPotStatusView(APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == 'PATCH':
+            return []
+        return [IsAuthenticated()]
 
     def get(self, request, pot_id):
         try:
@@ -153,6 +132,31 @@ class GetPotStatusView(APIView):
                 "water_level": last_reading.water_level if last_reading else None,
                 "last_update": last_reading.recorded_at if last_reading else None,
             }
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request, pot_id):
+        device, error = get_device_from_token(request)
+        if error:
+            return error
+
+        try:
+            pot = Pot.objects.get(id=pot_id, device=device)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        device.status = request.data.get('device_status', device.status)
+        device.is_watering = request.data.get('is_watering', device.is_watering)
+        device.last_action = request.data.get('last_action', device.last_action)
+        device.battery_level = request.data.get('battery_level', device.battery_level)
+        device.last_seen_at = timezone.now()
+        device.save()
+
+        return Response({
+            "status": "success",
+            "message": "Device status updated successfully"
         }, status=status.HTTP_200_OK)
 
 

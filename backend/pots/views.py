@@ -126,6 +126,21 @@ class ActivatePotView(APIView):
 class AssignPlantToPotView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get(self, request, pot_id):
+        try:
+            pot = Pot.objects.get(id=pot_id, owner=request.user)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = PotDetailSerializer(pot)
+        return Response({
+            "status": "success",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
     def post(self, request, pot_id):
         plant_id = request.data.get('plant_id')
 
@@ -142,7 +157,6 @@ class AssignPlantToPotView(APIView):
                 "status": "error",
                 "message": "Saksı bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
-
 
         try:
             plant = Plant.objects.get(id=plant_id)
@@ -164,8 +178,6 @@ class AssignPlantToPotView(APIView):
                 "plant_name": plant.name
             }
         }, status=status.HTTP_200_OK)
-
-
 class PotListView(APIView):
     permission_classes = [IsAuthenticated]
 

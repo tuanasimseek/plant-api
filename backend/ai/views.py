@@ -1,3 +1,7 @@
+import os
+import tempfile
+from .ml_service import predict_plant_height
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -91,7 +95,7 @@ class MeasurePlantHeightView(APIView):
     def post(self, request):
         plant_id = request.data.get('plant_id')
         image_url = request.data.get('image_url')
-        reference_object_cm = request.data.get('reference_object_cm', 10)
+        reference_object_cm = request.data.get('reference_object_cm', 9)
 
         if not plant_id or not image_url:
             return Response({
@@ -107,17 +111,51 @@ class MeasurePlantHeightView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # ML modeli hazır olunca buraya entegre edilecek
-        return Response({
-            "status": "success",
-            "data": {
-                "plant_id": plant.id,
-                "estimated_height_cm": 24.7,
-                "confidence": 0.87,
-                "model_version": "height_estimator_v1"
-            }
-        }, status=status.HTTP_200_OK)
+        try:
+            import requests
 
+            response = requests.get(image_url, stream=True, timeout=15)
+            response.raise_for_status()
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        tmp.write(chunk)
+                temp_image_path = tmp.name
+
+            result = predict_plant_height(
+                image_path=temp_image_path,
+                reference_object_cm=float(reference_object_cm)
+            )
+
+            # İstersen sonucu DB'ye de kaydedebiliriz
+            analysis = AnalysisResult.objects.create(
+                plant=plant,
+                estimated_height_cm=result["estimated_height_cm"],
+                confidence=result["confidence"],
+                health_status="unknown"
+            )
+
+            return Response({
+                "status": "success",
+                "data": {
+                    "plant_id": plant.id,
+                    "estimated_height_cm": result["estimated_height_cm"],
+                    "confidence": result["confidence"],
+                    "model_version": result["model_version"],
+                    "analysis_id": analysis.id,
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Boy ölçümü başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        finally:
+            if 'temp_image_path' in locals() and temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
 class MeasurePlantHeightLiveView(APIView):
     permission_classes = [IsAuthenticated]
@@ -125,22 +163,41 @@ class MeasurePlantHeightLiveView(APIView):
 
     def post(self, request):
         image_file = request.FILES.get('image')
+        reference_object_cm = request.data.get('reference_object_cm', 9)
+
         if not image_file:
             return Response({
                 "status": "error",
                 "message": "Görüntü zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # ML modeli hazır olunca buraya entegre edilecek
-        return Response({
-            "status": "success",
-            "data": {
-                "estimated_height_cm": 24.7,
-                "confidence": 0.87,
-                "model_version": "height_estimator_v1"
-            }
-        }, status=status.HTTP_200_OK)
+        temp_image_path = None
 
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                for chunk in image_file.chunks():
+                    tmp.write(chunk)
+                temp_image_path = tmp.name
+
+            result = predict_plant_height(
+                image_path=temp_image_path,
+                reference_object_cm=float(reference_object_cm)
+            )
+
+            return Response({
+                "status": "success",
+                "data": result
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Boy ölçümü başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        finally:
+            if temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
 class AnalyzeGrowthView(APIView):
     permission_classes = [IsAuthenticated]
