@@ -46,3 +46,37 @@ class PotDetailSerializer(serializers.ModelSerializer):
             }
         return None
     
+class MyPotSerializer(serializers.ModelSerializer):
+    plant_name = serializers.SerializerMethodField()
+    device_id = serializers.SerializerMethodField()
+    device_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pot
+        fields = [
+            'id',
+            'nickname',
+            'plant_name',
+            'device_id',
+            'device_status',
+            'is_active',
+            'placement_status',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_plant_name(self, obj):
+        return obj.plant.name if obj.plant else None
+
+    def get_device_id(self, obj):
+        return obj.device.device_code if obj.device else None    
+
+    def get_device_status(self, obj):
+        if not obj.device:
+            return None
+        return {
+            "status": obj.device.status,
+            "is_watering": obj.device.is_watering,
+            "battery_level": obj.device.battery_level,
+            "last_seen_at": obj.device.last_seen_at,
+        }

@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 import secrets
 
 from .models import Pot
-from .serializers import PotSerializer, PotDetailSerializer
+from .serializers import PotSerializer, PotDetailSerializer, MyPotSerializer
 from devices.models import Device
 from plants.models import Plant
 
@@ -227,6 +227,17 @@ class PotDetailView(APIView):
             }, status=status.HTTP_404_NOT_FOUND)
 
         serializer = PotDetailSerializer(pot)
+        return Response({
+            "status": "success",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
+class MyPotsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        pots = Pot.objects.filter(owner=request.user).select_related('plant', 'device')
+        serializer = MyPotSerializer(pots, many=True)
         return Response({
             "status": "success",
             "data": serializer.data
