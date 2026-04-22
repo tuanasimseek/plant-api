@@ -15,11 +15,12 @@ class RegisterView(APIView):
         if serializer.is_valid():
             user = serializer.save()
             refresh = RefreshToken.for_user(user)
-            return Response({
-                "status": "success",
-                "token": str(refresh.access_token),
-                "user": UserSerializer(user).data
-            }, status=status.HTTP_201_CREATED)
+        return Response({
+            "status": "success",
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+            "user": UserSerializer(user).data
+        }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -52,7 +53,8 @@ class LoginView(APIView):
 
         refresh = RefreshToken.for_user(user)
         return Response({
-            "status": "success",
-            "token": str(refresh.access_token),
-            "user": UserSerializer(user).data
+             "status": "success",
+             "access_token": str(refresh.access_token),
+             "refresh_token": str(refresh),
+             "user": UserSerializer(user).data
         }, status=status.HTTP_200_OK)

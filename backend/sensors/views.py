@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.db.models import Q
 
 from .models import SensorReading, WateringHistory
 from .serializers import SensorReadingSerializer, WateringHistorySerializer
@@ -108,9 +109,11 @@ class PotStatusView(APIView):
         return [IsAuthenticated()]
 
     def get(self, request, pot_id):
-        try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
-        except Pot.DoesNotExist:
+        pot = Pot.objects.filter(
+            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+        ).distinct().first()
+
+        if not pot:
             return Response({
                 "status": "error",
                 "message": "Saksı bulunamadı."
@@ -164,9 +167,11 @@ class GetSensorHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pot_id):
-        try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
-        except Pot.DoesNotExist:
+        pot = Pot.objects.filter(
+            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+        ).distinct().first()
+
+        if not pot:
             return Response({
                 "status": "error",
                 "message": "Saksı bulunamadı."
@@ -189,11 +194,17 @@ class GetSensorHistoryView(APIView):
             readings = readings.filter(recorded_at__gte=timezone.now() - timedelta(days=30))
 
         if start_date:
-            readings = readings.filter(recorded_at__gte=parse_datetime(start_date))
+            parsed_start = parse_datetime(start_date)
+            if parsed_start:
+                readings = readings.filter(recorded_at__gte=parsed_start)
+
         if end_date:
-            readings = readings.filter(recorded_at__lte=parse_datetime(end_date))
+            parsed_end = parse_datetime(end_date)
+            if parsed_end:
+                readings = readings.filter(recorded_at__lte=parsed_end)
 
         serializer = SensorReadingSerializer(readings, many=True)
+
         return Response({
             "status": "success",
             "data": {
@@ -207,9 +218,11 @@ class GetWateringHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pot_id):
-        try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
-        except Pot.DoesNotExist:
+        pot = Pot.objects.filter(
+            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+        ).distinct().first()
+
+        if not pot:
             return Response({
                 "status": "error",
                 "message": "Saksı bulunamadı."
@@ -221,9 +234,14 @@ class GetWateringHistoryView(APIView):
         end_date = request.query_params.get('endDate')
 
         if start_date:
-            history = history.filter(watered_at__gte=parse_datetime(start_date))
+            parsed_start = parse_datetime(start_date)
+            if parsed_start:
+                history = history.filter(watered_at__gte=parsed_start)
+
         if end_date:
-            history = history.filter(watered_at__lte=parse_datetime(end_date))
+            parsed_end = parse_datetime(end_date)
+            if parsed_end:
+                history = history.filter(watered_at__lte=parsed_end)
 
         serializer = WateringHistorySerializer(history, many=True)
         return Response({
@@ -232,4 +250,38 @@ class GetWateringHistoryView(APIView):
                 "pot_id": pot.id,
                 "history": serializer.data
             }
+        }, status=status.HTTP_200_OK)
+
+
+class LightSensorReadingView(APIView):
+    permission_classes = []
+
+    def post(self, request, pot_id):
+        device, error = get_device_from_token(request)
+        if error:
+            return error
+
+        try:
+            pot = Pot.objects.get(id=pot_id, device=device)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        light_level = request.data.get('light_level')
+        if light_level is None:
+            return Response({
+                "status": "error",
+                "message": "light_level zorunludur."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        SensorReading.objects.create(
+            pot=pot,
+            light=light_level,
+            recorded_at=timezone.now(),
+        )
+
+        return Response({
+            "status": "success"
         }, status=status.HTTP_200_OK)

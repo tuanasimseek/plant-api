@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
+from django.db.models import Q
 
 from .models import Device
 from .serializers import DeviceSerializer
@@ -136,7 +137,9 @@ class ActuatorCommandView(APIView):
 
     def post(self, request, pot_id):
         try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
+            pot = Pot.objects.get(
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",
@@ -166,7 +169,9 @@ class GetSetupCheckView(APIView):
 
     def get(self, request, pot_id):
         try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
+            pot = Pot.objects.get(
+    Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+)
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",
@@ -202,7 +207,9 @@ class GetEnvironmentView(APIView):
 
         if pot_id:
             try:
-                pot = Pot.objects.get(id=pot_id, owner=request.user)
+                pot = Pot.objects.get(
+    Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+)
                 last_reading = SensorReading.objects.filter(pot=pot).order_by('-recorded_at').first()
                 if last_reading:
                     return Response({
@@ -228,3 +235,39 @@ class GetEnvironmentView(APIView):
                 "time_of_day": "day"
             }
         }, status=status.HTTP_200_OK)
+    
+
+class GetNewConfigView(APIView):
+    permission_classes = []
+
+    def get(self, request, pot_id):
+        device, error = get_device_from_token(request)
+        if error:
+            return error
+
+        try:
+            pot = Pot.objects.get(id=pot_id, device=device)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        from ml.models import StateMachineConfig
+        config = StateMachineConfig.objects.first()
+        if not config:
+            return Response({
+                "status": "error",
+                "message": "Config bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "status": "success",
+            "data": {
+                "moisture_threshold": config.moisture_threshold,
+                "watering_duration_ms": config.watering_duration_ms,
+                "sleep_interval_min": config.sleep_interval_min,
+                "auto_mode": config.auto_mode,
+            }
+        }, status=status.HTTP_200_OK)
+    

@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,7 +15,6 @@ class VerifyPotQRView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, device_id):
-        
         try:
             device = Device.objects.get(device_code=device_id)
         except Device.DoesNotExist:
@@ -24,7 +24,8 @@ class VerifyPotQRView(APIView):
             }, status=status.HTTP_404_NOT_FOUND)
 
         if hasattr(device, 'pot') and device.pot.is_active:
-            if device.pot.owner != request.user:
+            pot = device.pot
+            if pot.owner != request.user and request.user not in pot.allowed_users.all():
                 return Response({
                     "status": "error",
                     "message": "Bu cihaz başka bir kullanıcıya bağlı."
@@ -54,11 +55,22 @@ class RegisterPotDeviceView(APIView):
                 "message": "device_id zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        if Device.objects.filter(device_code=device_id).exists():
+        existing_device = Device.objects.filter(device_code=device_id).first()
+        if existing_device:
+            pot = getattr(existing_device, 'pot', None)
+
             return Response({
-                "status": "error",
-                "message": "Bu cihaz zaten kayıtlı."
-            }, status=status.HTTP_409_CONFLICT)
+                "status": "success",
+                "message": "Device already registered",
+                "device": {
+                    "device_id": existing_device.device_code,
+                    "model": existing_device.model,
+                    "registered": True,
+                    "device_token": existing_device.device_token,
+                    "pot_id": pot.id if pot else None,
+                    "is_active": pot.is_active if pot else False
+                }
+            }, status=status.HTTP_200_OK)
 
         device_token = secrets.token_hex(32)
         device = Device.objects.create(
@@ -75,7 +87,9 @@ class RegisterPotDeviceView(APIView):
                 "device_id": device.device_code,
                 "model": device.model,
                 "registered": True,
-                "device_token": device_token
+                "device_token": device_token,
+                "pot_id": None,
+                "is_active": False
             }
         }, status=status.HTTP_201_CREATED)
 
@@ -128,7 +142,9 @@ class AssignPlantToPotView(APIView):
 
     def get(self, request, pot_id):
         try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
+            pot = Pot.objects.get(
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",
@@ -151,7 +167,9 @@ class AssignPlantToPotView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
+            pot = Pot.objects.get(
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",
@@ -178,11 +196,15 @@ class AssignPlantToPotView(APIView):
                 "plant_name": plant.name
             }
         }, status=status.HTTP_200_OK)
+
+
 class PotListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        pots = Pot.objects.filter(owner=request.user).select_related('plant', 'device')
+        pots = Pot.objects.filter(
+            Q(owner=request.user) | Q(allowed_users=request.user)
+        ).distinct().select_related('plant', 'device')
         serializer = PotSerializer(pots, many=True)
         return Response({
             "status": "success",
@@ -195,7 +217,9 @@ class PotDetailView(APIView):
 
     def get(self, request, pot_id):
         try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
+            pot = Pot.objects.get(
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",

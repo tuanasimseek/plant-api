@@ -7,6 +7,7 @@ from .views import (
     ActuatorCommandView,
     GetSetupCheckView,
     GetEnvironmentView,
+    GetNewConfigView,
 )
 
 urlpatterns = [
@@ -17,4 +18,5 @@ urlpatterns = [
     path('pots/<int:pot_id>/commands', ActuatorCommandView.as_view(), name='actuator-command'),
     path('pots/<int:pot_id>/setup-check', GetSetupCheckView.as_view(), name='setup-check'),
     path('environment', GetEnvironmentView.as_view(), name='environment'),
+    path('pots/<int:pot_id>/newconfig', GetNewConfigView.as_view(), name='new-config'),
 ]

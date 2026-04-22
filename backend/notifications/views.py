@@ -2,6 +2,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q
+
 
 from .models import Notification, Alert
 from .serializers import NotificationSerializer, AlertSerializer
@@ -60,7 +62,9 @@ class GetDeviceStateView(APIView):
     def get(self, request, pot_id):
         from pots.models import Pot
         try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
+            pot = Pot.objects.get(
+    Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+)
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",

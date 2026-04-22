@@ -1,6 +1,8 @@
 import os
 import tempfile
 from .ml_service import predict_plant_height
+from django.db.models import Q
+
 
 from rest_framework import status
 from rest_framework.response import Response
@@ -255,7 +257,9 @@ class GetAIAnalysisResultView(APIView):
 
     def get(self, request, pot_id):
         try:
-            pot = Pot.objects.get(id=pot_id, owner=request.user)
+            pot = Pot.objects.get(
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",

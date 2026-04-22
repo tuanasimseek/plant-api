@@ -5,6 +5,7 @@ from .views import (
     PotStatusView,
     GetSensorHistoryView,
     GetWateringHistoryView,
+    LightSensorReadingView,
 )
 
 urlpatterns = [
@@ -13,4 +14,5 @@ urlpatterns = [
     path('pots/<int:pot_id>/status', PotStatusView.as_view(), name='pot-status'),
     path('pots/<int:pot_id>/history', GetSensorHistoryView.as_view(), name='sensor-history'),
     path('pots/<int:pot_id>/watering-history', GetWateringHistoryView.as_view(), name='watering-history'),
+    path('pots/<int:pot_id>/lightsensorreadings', LightSensorReadingView.as_view(), name='light-sensor'),
 ]
