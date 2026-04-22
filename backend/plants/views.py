@@ -11,7 +11,7 @@ class PlantListView(APIView):
 
     def get(self, request):
         plants = Plant.objects.all()
-        serializer = PlantSerializer(plants, many=True)
+        serializer = PlantSerializer(plants, many=True, context={'request': request})
         return Response({
             "status": "success",
             "data": serializer.data
@@ -27,8 +27,8 @@ class PlantCategoryListView(APIView):
         ).exclude(
             category=''
         ).values_list('category', flat=True).distinct()
-        
-        data = [{"id": i+1, "name": cat} for i, cat in enumerate(categories)]
+
+        data = [{"id": i + 1, "name": cat} for i, cat in enumerate(categories)]
         return Response({
             "status": "success",
             "data": data
@@ -45,9 +45,9 @@ class PlantSearchView(APIView):
                 "status": "error",
                 "message": "q parametresi zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         plants = Plant.objects.filter(name__icontains=q) | Plant.objects.filter(scientific_name__icontains=q)
-        serializer = PlantSerializer(plants, many=True)
+        serializer = PlantSerializer(plants, many=True, context={'request': request})
         return Response({
             "status": "success",
             "data": serializer.data
@@ -65,10 +65,10 @@ class PlantDetailView(APIView):
                 "status": "error",
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
-        
-        serializer = PlantSerializer(plant)
+
+        serializer = PlantSerializer(plant, context={'request': request})
         return Response({
             "status": "success",
             "data": serializer.data
         }, status=status.HTTP_200_OK)
-    
+

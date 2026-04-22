@@ -193,3 +193,5 @@ LOGGING = {
         },
     },
 }
+
+PUBLIC_BASE_URL = "http://10.245.4.112:8000"
