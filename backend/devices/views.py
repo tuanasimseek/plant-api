@@ -147,16 +147,21 @@ class ActuatorCommandView(APIView):
             }, status=status.HTTP_404_NOT_FOUND)
 
         command = request.data.get('command')
-        if not command:
-            return Response({
-                "status": "error",
-                "message": "command zorunludur."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
         if command == 'water_on':
             pot.device.is_watering = True
             pot.device.last_action = 'manual_watering_started'
             pot.device.save()
+
+        elif command == 'water_off':
+            pot.device.is_watering = False
+            pot.device.last_action = 'manual_watering_stopped'
+            pot.device.save()
+
+        else:
+            return Response({
+                "status": "error",
+                "message": f"Geçersiz komut: {command}"
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({
             "status": "success",
