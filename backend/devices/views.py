@@ -32,13 +32,6 @@ class HeartbeatView(APIView):
     permission_classes = []
 
     def post(self, request):
-        device_id = request.data.get('device_id')
-        if not device_id:
-            return Response({
-                "status": "error",
-                "message": "device_id zorunludur."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
         device, error = get_device_from_token(request)
         if error:
             return error
@@ -151,12 +144,10 @@ class ActuatorCommandView(APIView):
             pot.device.is_watering = True
             pot.device.last_action = 'manual_watering_started'
             pot.device.save()
-
         elif command == 'water_off':
             pot.device.is_watering = False
             pot.device.last_action = 'manual_watering_stopped'
             pot.device.save()
-
         else:
             return Response({
                 "status": "error",
@@ -165,8 +156,14 @@ class ActuatorCommandView(APIView):
 
         return Response({
             "status": "success",
-            "message": "Actuator command queued successfully"
-        }, status=status.HTTP_201_CREATED)
+            "message": "Actuator command queued successfully",
+            "data": {
+                "pot_id": pot.id,
+                "device_id": pot.device.id,
+                "device_code": pot.device.device_code,
+                "command": command,
+            }
+        }, status=status.HTTP_200_OK)
 
 
 class GetSetupCheckView(APIView):
@@ -175,8 +172,8 @@ class GetSetupCheckView(APIView):
     def get(self, request, pot_id):
         try:
             pot = Pot.objects.get(
-    Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
-)
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
         except Pot.DoesNotExist:
             return Response({
                 "status": "error",
@@ -197,6 +194,7 @@ class GetSetupCheckView(APIView):
             "status": "success",
             "data": {
                 "pot_id": pot.id,
+                "device_code": pot.device.device_code, 
                 "light_ok": light_ok,
                 "placement_status": placement_status,
                 "message": "Konum uygun" if light_ok else "Konum uygun değil"
@@ -213,13 +211,15 @@ class GetEnvironmentView(APIView):
         if pot_id:
             try:
                 pot = Pot.objects.get(
-    Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
-)
+                    Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+                )
                 last_reading = SensorReading.objects.filter(pot=pot).order_by('-recorded_at').first()
                 if last_reading:
                     return Response({
                         "status": "success",
                         "data": {
+                            "pot_id": pot.id,
+                            "device_code": pot.device.device_code,  
                             "temperature": last_reading.temperature,
                             "humidity": last_reading.humidity,
                             "light_level": last_reading.light,
@@ -240,7 +240,7 @@ class GetEnvironmentView(APIView):
                 "time_of_day": "day"
             }
         }, status=status.HTTP_200_OK)
-    
+
 
 class GetNewConfigView(APIView):
     permission_classes = []
@@ -258,21 +258,15 @@ class GetNewConfigView(APIView):
                 "message": "Saksı bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        from ml.models import StateMachineConfig
-        config = StateMachineConfig.objects.first()
-        if not config:
-            return Response({
-                "status": "error",
-                "message": "Config bulunamadı."
-            }, status=status.HTTP_404_NOT_FOUND)
-
         return Response({
             "status": "success",
             "data": {
-                "moisture_threshold": config.moisture_threshold,
-                "watering_duration_ms": config.watering_duration_ms,
-                "sleep_interval_min": config.sleep_interval_min,
-                "auto_mode": config.auto_mode,
+                "pot_id": pot.id,
+                "device_db_id": device.id,        # eklendi
+                "device_code": device.device_code, # eklendi
+                "moisture_threshold": pot.moisture_threshold,
+                "watering_duration_ms": pot.watering_duration_ms,
+                "sleep_interval_min": pot.sleep_interval_min,
+                "auto_mode": pot.auto_mode,
             }
         }, status=status.HTTP_200_OK)
-    

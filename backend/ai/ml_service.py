@@ -1,5 +1,11 @@
 import os
 from ultralytics import YOLO
+import json
+import numpy as np
+from tensorflow.keras.preprocessing import image as keras_image
+from tensorflow import keras
+from tensorflow import keras
+
 
 # MODEL YOLU
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,4 +70,52 @@ def predict_plant_height(image_path, reference_object_cm=9):
         "estimated_height_cm": round(estimated_height_cm, 2),
         "confidence": round(confidence, 4),
         "model_version": "best.pt"
+    }
+
+# Classifier model yolu
+CLASSIFIER_MODEL_PATH = os.path.join(BASE_DIR, "models_ai", "plant_classifier", "en_iyi_model.keras")
+CLASS_INDICES_PATH = os.path.join(BASE_DIR, "models_ai", "plant_classifier", "class_indices.json")
+
+# Model ve class map yükle
+CONFIG_PATH = os.path.join(BASE_DIR, "models_ai", "plant_classifier", "en_iyi_model.keras", "config.json")
+WEIGHTS_PATH = os.path.join(BASE_DIR, "models_ai", "plant_classifier", "en_iyi_model.keras", "model.weights.h5")
+
+with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    config_json = f.read()
+
+classifier_model = keras.models.model_from_json(config_json)
+classifier_model.load_weights(WEIGHTS_PATH)
+print("Classifier model yüklendi:", CLASSIFIER_MODEL_PATH)
+
+with open(CLASS_INDICES_PATH, "r", encoding="utf-8") as f:
+    class_indices = json.load(f)
+
+# {"ClassName": 0, ...} → {0: "ClassName", ...}
+index_to_class = {v: k for k, v in class_indices.items()}
+
+
+def predict_plant_species(image_path, top_k=3):
+    img = keras_image.load_img(image_path, target_size=(224, 224))
+    img_array = keras_image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = img_array / 255.0
+
+    predictions = classifier_model.predict(img_array)
+    probs = predictions[0]
+
+    top_indices = np.argsort(probs)[::-1][:top_k]
+
+    top_results = [
+        {
+            "species": index_to_class.get(int(i), "unknown"),
+            "confidence": round(float(probs[i]), 4)
+        }
+        for i in top_indices
+    ]
+
+    return {
+        "predicted_species": top_results[0]["species"],
+        "confidence": top_results[0]["confidence"],
+        "top_predictions": top_results,
+        "model_version": "en_iyi_model.keras"
     }

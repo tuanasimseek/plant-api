@@ -25,7 +25,7 @@ class SimulationResult(models.Model):
     predicted_growth_cm = models.FloatField(blank=True, null=True)
     recommended_watering_ml = models.FloatField(blank=True, null=True)
     confidence = models.FloatField(blank=True, null=True)
-    simulation_time = models.DateTimeField()
+    simulation_time = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

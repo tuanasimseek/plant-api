@@ -195,3 +195,7 @@ LOGGING = {
 }
 
 PUBLIC_BASE_URL = "http://10.245.4.112:8000"
+
+DEVELOPMENT_MODE = True
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+APPEND_SLASH = False

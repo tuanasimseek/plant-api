@@ -14,6 +14,7 @@ from .models import PlantImage, AnalysisResult
 from .serializers import PlantImageSerializer, AnalysisResultSerializer
 from plants.models import Plant
 from pots.models import Pot
+from .ml_service import predict_plant_height, predict_plant_species
 
 
 class UploadPlantImageView(APIView):
@@ -240,17 +241,56 @@ class ClassifyPlantSpeciesView(APIView):
                 "message": "plant_id ve image_url zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # ML modeli hazır olunca buraya entegre edilecek
-        return Response({
-            "status": "success",
-            "data": {
-                "plant_id": plant_id,
-                "plant_species": "Monstera Deliciosa",
-                "confidence": 0.94,
-                "model_version": "plant_classifier_v1"
-            }
-        }, status=status.HTTP_200_OK)
+        try:
+            plant = Plant.objects.get(id=plant_id)
+        except Plant.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Bitki bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
 
+        temp_image_path = None
+        try:
+            import requests
+
+            response = requests.get(image_url, stream=True, timeout=15)
+            response.raise_for_status()
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        tmp.write(chunk)
+                temp_image_path = tmp.name
+
+            result = predict_plant_species(image_path=temp_image_path)
+
+            AnalysisResult.objects.create(
+                plant=plant,
+                species_prediction=result["predicted_species"],
+                confidence=result["confidence"],
+                health_status="unknown"
+            )
+
+            return Response({
+                "status": "success",
+                "data": {
+                    "plant_id": plant.id,
+                    "plant_species": result["predicted_species"],
+                    "confidence": result["confidence"],
+                    "top_predictions": result["top_predictions"],
+                    "model_version": result["model_version"]
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Tür tespiti başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        finally:
+            if temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
 class GetAIAnalysisResultView(APIView):
     permission_classes = [IsAuthenticated]
@@ -325,15 +365,34 @@ class GuestAIScanView(APIView):
                 "message": "Görüntü zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # ML modeli hazır olunca buraya entegre edilecek
-        return Response({
-            "status": "success",
-            "data": {
-                "plant": "Rose",
-                "health": "Healthy",
-                "confidence": 0.91
-            }
-        }, status=status.HTTP_200_OK)
+        temp_image_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                for chunk in image_file.chunks():
+                    tmp.write(chunk)
+                temp_image_path = tmp.name
+
+            result = predict_plant_species(image_path=temp_image_path)
+
+            return Response({
+                "status": "success",
+                "data": {
+                    "plant": result["predicted_species"],
+                    "confidence": result["confidence"],
+                    "top_predictions": result["top_predictions"],
+                    "model_version": result["model_version"]
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Tür tespiti başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        finally:
+            if temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
 
 class MemberAIChatView(APIView):

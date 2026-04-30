@@ -9,6 +9,7 @@ from django.db.models import Q
 from .models import SensorReading, WateringHistory
 from .serializers import SensorReadingSerializer, WateringHistorySerializer
 from pots.models import Pot
+      
 from devices.models import Device
 from ml.models import StateMachineConfig
 
@@ -78,24 +79,18 @@ class GetPotConfigView(APIView):
                 "message": "Saksı bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        config = StateMachineConfig.objects.first()
-        if not config:
-            return Response({
-                "status": "error",
-                "message": "Config bulunamadı."
-            }, status=status.HTTP_404_NOT_FOUND)
-
+        
         return Response({
             "status": "success",
             "data": {
                 "pot_id": pot.id,
-                "moisture_threshold": config.moisture_threshold,
-                "watering_duration_ms": config.watering_duration_ms,
-                "sleep_interval_min": config.sleep_interval_min,
-                "auto_mode": config.auto_mode,
+                "device_code": device.device_code,
+                "moisture_threshold": pot.moisture_threshold,
+                "watering_duration_ms": pot.watering_duration_ms,
+                "sleep_interval_min": pot.sleep_interval_min,
+                "auto_mode": pot.auto_mode,
             }
         }, status=status.HTTP_200_OK)
-
 
 class PotStatusView(APIView):
     """
@@ -109,33 +104,39 @@ class PotStatusView(APIView):
         return [IsAuthenticated()]
 
     def get(self, request, pot_id):
-        pot = Pot.objects.filter(
-            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
-        ).distinct().first()
+            from django.conf import settings
 
-        if not pot:
+            if settings.DEVELOPMENT_MODE:
+                pot = Pot.objects.filter(id=pot_id).first()
+            else:
+                pot = Pot.objects.filter(
+                    Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+                ).distinct().first()
+
+            if not pot:
+                return Response({
+                    "status": "error",
+                    "message": "Saksı bulunamadı."
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            last_reading = SensorReading.objects.filter(pot=pot).order_by('-recorded_at').first()
+
             return Response({
-                "status": "error",
-                "message": "Saksı bulunamadı."
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        last_reading = SensorReading.objects.filter(pot=pot).order_by('-recorded_at').first()
-
-        return Response({
-            "status": "success",
-            "data": {
-                "pot_id": pot.id,
-                "device_status": pot.device.status,
-                "is_watering": pot.device.is_watering,
-                "last_action": pot.device.last_action,
-                "temperature": last_reading.temperature if last_reading else None,
-                "humidity": last_reading.humidity if last_reading else None,
-                "soil_moisture": last_reading.soil_moisture if last_reading else None,
-                "light": last_reading.light if last_reading else None,
-                "water_level": last_reading.water_level if last_reading else None,
-                "last_update": last_reading.recorded_at if last_reading else None,
-            }
-        }, status=status.HTTP_200_OK)
+                "status": "success",
+                "data": {
+                    "pot_id": pot.id,
+                    "device_code": pot.device.device_code,
+                    "device_status": pot.device.status,
+                    "is_watering": pot.device.is_watering,
+                    "last_action": pot.device.last_action,
+                    "temperature": last_reading.temperature if last_reading else None,
+                    "humidity": last_reading.humidity if last_reading else None,
+                    "soil_moisture": last_reading.soil_moisture if last_reading else None,
+                    "light": last_reading.light if last_reading else None,
+                    "water_level": last_reading.water_level if last_reading else None,
+                    "last_update": last_reading.recorded_at if last_reading else None,
+                }
+            }, status=status.HTTP_200_OK)
 
     def patch(self, request, pot_id):
         device, error = get_device_from_token(request)
@@ -285,3 +286,4 @@ class LightSensorReadingView(APIView):
         return Response({
             "status": "success"
         }, status=status.HTTP_200_OK)
+     

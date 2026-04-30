@@ -11,7 +11,7 @@ from .serializers import (
     DigitalTwinStatusSerializer,
 )
 from pots.models import Pot
-
+from django.utils import timezone
 
 class StateMachineConfigView(APIView):
     permission_classes = [IsAuthenticated]
@@ -110,7 +110,6 @@ class SendSimulationResultsView(APIView):
             predicted_growth_cm=request.data.get('predicted_growth_cm'),
             recommended_watering_ml=request.data.get('recommended_watering_ml'),
             confidence=request.data.get('confidence'),
-            simulation_time=request.data.get('simulation_time'),
         )
 
         serializer = SimulationResultSerializer(result)
