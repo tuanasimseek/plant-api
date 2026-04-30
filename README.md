@@ -1,2 +1,2 @@
-# plant-api-project
+# plant-api
 
