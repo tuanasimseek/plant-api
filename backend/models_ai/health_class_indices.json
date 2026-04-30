@@ -1,0 +1,9 @@
+{
+  "bakteriyel_leke": 0,
+  "erken_yaniklik": 1,
+  "geç_yaniklik": 2,
+  "saglikli": 3,
+  "sararma": 4,
+  "yaprak_kufu": 5,
+  "yaprak_lekesi": 6
+}

@@ -1,6 +1,5 @@
 import os
 import tempfile
-from .ml_service import predict_plant_height
 from django.db.models import Q
 
 
@@ -14,7 +13,8 @@ from .models import PlantImage, AnalysisResult
 from .serializers import PlantImageSerializer, AnalysisResultSerializer
 from plants.models import Plant
 from pots.models import Pot
-from .ml_service import predict_plant_height, predict_plant_species
+from .ml_service import predict_plant_height, predict_plant_species, predict_plant_health
+
 
 
 class UploadPlantImageView(APIView):
@@ -61,6 +61,7 @@ class AnalyzePlantImageView(APIView):
     def post(self, request):
         plant_id = request.data.get('plant_id')
         image_url = request.data.get('image_url')
+        reference_object_cm = request.data.get('reference_object_cm', 9)
 
         if not plant_id or not image_url:
             return Response({
@@ -76,20 +77,79 @@ class AnalyzePlantImageView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # ML modeli hazır olunca buraya entegre edilecek
-        # Şimdilik mock response
-        result = AnalysisResult.objects.create(
-            plant=plant,
-            health_status='healthy',
-            disease_detected=False,
-            confidence=0.91,
-            species_prediction=plant.scientific_name,
-        )
+        temp_image_path = None
 
-        return Response({
-            "status": "success",
-            "data": AnalysisResultSerializer(result).data
-        }, status=status.HTTP_200_OK)
+        try:
+            import requests
+
+            response = requests.get(image_url, stream=True, timeout=15)
+            response.raise_for_status()
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        tmp.write(chunk)
+                temp_image_path = tmp.name
+
+            # 1) Tür tespiti
+            species_result = predict_plant_species(image_path=temp_image_path)
+
+            # 2) Sağlık tespiti
+            health_result = predict_plant_health(image_path=temp_image_path)
+
+            # 3) Boy tespiti
+            height_result = predict_plant_height(
+                image_path=temp_image_path,
+                reference_object_cm=float(reference_object_cm)
+            )
+
+            # DB'ye tek analiz sonucu olarak kaydet
+            result = AnalysisResult.objects.create(
+                plant=plant,
+                species_prediction=species_result["predicted_species"],
+                health_status=health_result["health_status"],
+                disease_detected=health_result["disease_detected"],
+                disease_name=health_result["disease_name"],
+                estimated_height_cm=height_result["estimated_height_cm"],
+                confidence=health_result["confidence"],
+            )
+
+            return Response({
+                "status": "success",
+                "data": {
+                    "analysis_id": result.id,
+                    "plant_id": plant.id,
+
+                    "species_prediction": species_result["predicted_species"],
+                    "species_confidence": species_result["confidence"],
+                    "species_top_predictions": species_result["top_predictions"],
+
+                    "health_status": health_result["health_status"],
+                    "disease_detected": health_result["disease_detected"],
+                    "disease_name": health_result["disease_name"],
+                    "health_confidence": health_result["confidence"],
+                    "health_top_predictions": health_result["top_predictions"],
+
+                    "estimated_height_cm": height_result["estimated_height_cm"],
+                    "height_confidence": height_result["confidence"],
+
+                    "models": {
+                        "species_model": species_result["model_version"],
+                        "health_model": health_result["model_version"],
+                        "height_model": height_result["model_version"]
+                    }
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Analiz başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        finally:
+            if temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
 
 class MeasurePlantHeightView(APIView):

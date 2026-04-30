@@ -4,7 +4,6 @@ import json
 import numpy as np
 from tensorflow.keras.preprocessing import image as keras_image
 from tensorflow import keras
-from tensorflow import keras
 
 
 # MODEL YOLU
@@ -118,4 +117,74 @@ def predict_plant_species(image_path, top_k=3):
         "confidence": top_results[0]["confidence"],
         "top_predictions": top_results,
         "model_version": "en_iyi_model.keras"
+    }
+
+# =======================
+# HEALTH MODEL (YENİ)
+# =======================
+
+HEALTH_MODEL_PATH = os.path.join(BASE_DIR, "models_ai", "bitki_saglik_modeli.h5")
+HEALTH_CLASS_INDICES_PATH = os.path.join(BASE_DIR, "models_ai", "health_class_indices.json")
+
+# modeli yükle
+health_model = keras.models.load_model(HEALTH_MODEL_PATH)
+print("Health model yüklendi:", HEALTH_MODEL_PATH)
+
+# class map yükle
+with open(HEALTH_CLASS_INDICES_PATH, "r", encoding="utf-8") as f:
+    health_class_indices = json.load(f)
+
+# {class: index} → {index: class}
+health_index_to_class = {v: k for k, v in health_class_indices.items()}
+
+# Sağlık sınıf haritası
+HEALTH_CLASS_MAP = {
+    "saglikli": "healthy",
+    "sararma": "slightly_stressed",
+    "erken_yaniklik": "slightly_stressed",
+    "geç_yaniklik": "unhealthy",
+    "bakteriyel_leke": "unhealthy",
+    "yaprak_kufu": "unhealthy",
+    "yaprak_lekesi": "slightly_stressed",
+}
+
+DISEASE_CLASSES = {
+    "bakteriyel_leke", "erken_yaniklik", "geç_yaniklik",
+    "yaprak_kufu", "yaprak_lekesi", "sararma"
+}
+
+def predict_plant_health(image_path, top_k=3):
+    img = keras_image.load_img(image_path, target_size=(224, 224))
+    img_array = keras_image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = img_array / 255.0
+
+    # 🔥 BURASI DEĞİŞTİ
+    predictions = health_model.predict(img_array)
+    probs = predictions[0]
+
+    top_indices = np.argsort(probs)[::-1][:top_k]
+
+    predicted_class = health_index_to_class.get(int(top_indices[0]), "unknown")
+    confidence = round(float(probs[top_indices[0]]), 4)
+
+    top_results = [
+        {
+            "class": health_index_to_class.get(int(i), "unknown"),
+            "confidence": round(float(probs[i]), 4)
+        }
+        for i in top_indices
+    ]
+
+    health_status = HEALTH_CLASS_MAP.get(predicted_class, "unhealthy")
+    disease_detected = predicted_class in DISEASE_CLASSES
+    disease_name = predicted_class if disease_detected else None
+
+    return {
+        "health_status": health_status,
+        "disease_detected": disease_detected,
+        "disease_name": disease_name,
+        "confidence": confidence,
+        "top_predictions": top_results,
+        "model_version": "bitki_saglik_modeli.h5"
     }
