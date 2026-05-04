@@ -51,3 +51,12 @@ class AnalysisResult(models.Model):
 
     def __str__(self):
         return f"Analysis {self.id} - {self.health_status}"
+    
+class OptimalDecision(models.Model):
+    pot = models.ForeignKey('pots.Pot', on_delete=models.CASCADE)
+    watering_needed = models.BooleanField()
+    recommended_watering_ml = models.FloatField()
+    light_adjustment = models.CharField(max_length=20)
+    temperature_adjustment = models.CharField(max_length=20)
+    confidence = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)

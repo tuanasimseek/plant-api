@@ -12,6 +12,7 @@ from .serializers import (
 )
 from pots.models import Pot
 from django.utils import timezone
+from ai.ml_service import predict_ml004_decision
 
 class StateMachineConfigView(APIView):
     permission_classes = [IsAuthenticated]
@@ -149,12 +150,21 @@ class EvaluateOptimalDecisionView(APIView):
 
     def post(self, request):
         pot_id = request.data.get('pot_id')
-        soil_moisture = request.data.get('soil_moisture', 0)
+        soil_moisture = request.data.get('soil_moisture')
+        temperature = request.data.get('temperature')
+        light = request.data.get('light')
+        air_humidity = request.data.get('air_humidity')
 
         if not pot_id:
             return Response({
                 "status": "error",
                 "message": "pot_id gerekli."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if soil_moisture is None or temperature is None or light is None or air_humidity is None:
+            return Response({
+                "status": "error",
+                "message": "soil_moisture, temperature, light ve air_humidity gerekli."
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -165,28 +175,38 @@ class EvaluateOptimalDecisionView(APIView):
                 "message": "Saksı bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        config = StateMachineConfig.objects.first()
-        threshold = config.moisture_threshold if config else 30
-
         try:
-            watering_needed = float(soil_moisture) < float(threshold)
-        except (TypeError, ValueError):
+            result = predict_ml004_decision(
+                soil_moisture=float(soil_moisture),
+                temperature=float(temperature),
+                light=float(light),
+                air_humidity=float(air_humidity)
+            )
+        except Exception as e:
             return Response({
                 "status": "error",
-                "message": "soil_moisture sayısal olmalı."
-            }, status=status.HTTP_400_BAD_REQUEST)
+                "message": f"ML-004 karar analizi başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        data = {
-            "watering_needed": watering_needed,
-            "recommended_watering_ml": 220 if watering_needed else 0,
-            "light_adjustment": "increase",
-            "temperature_adjustment": "none",
-            "confidence": 0.86
-        }
+        OptimalDecision.objects.create(
+            pot=pot,
+            watering_needed=result["watering_needed"],
+            recommended_watering_ml=result["recommended_watering_ml"],
+            light_adjustment=result["light_adjustment"],
+            temperature_adjustment=result["temperature_adjustment"],
+            confidence=result["confidence"],
+            model_version="ML-004"
+        )
 
         return Response({
             "status": "success",
-            "data": data
+            "data": {
+                "watering_needed": result["watering_needed"],
+                "recommended_watering_ml": result["recommended_watering_ml"],
+                "light_adjustment": result["light_adjustment"],
+                "temperature_adjustment": result["temperature_adjustment"],
+                "confidence": result["confidence"]
+            }
         }, status=status.HTTP_200_OK)
 
 

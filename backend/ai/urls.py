@@ -23,4 +23,6 @@ urlpatterns = [
     path('plants/<int:plant_id>/health-history', GetPlantHealthHistoryView.as_view(), name='health-history'),
     path('ai/guest-scan', GuestAIScanView.as_view(), name='guest-scan'),
     path('ai/member-chat', MemberAIChatView.as_view(), name='member-chat'),
+    #path('ml/simulation-results/<int:pot_id>', GetSimulationResultsView.as_view(), name='simulation-results'),
+    #path('ml/evaluate-optimal-decision', GetML004AnalysisView.as_view(), name='evaluate-optimal-decision'),
 ]

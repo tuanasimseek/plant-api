@@ -1,21 +1,27 @@
 import os
 import tempfile
 from django.db.models import Q
-
-
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
-
 from .models import PlantImage, AnalysisResult
+from ml.models import SimulationResult
 from .serializers import PlantImageSerializer, AnalysisResultSerializer
 from plants.models import Plant
 from pots.models import Pot
-from .ml_service import predict_plant_height, predict_plant_species, predict_plant_health
-
-
+from sensors.models import SensorReading
+from .ml_service import (
+    predict_plant_height,
+    predict_plant_species,
+    predict_plant_health,
+    predict_simulation,
+    predict_ml004_decision
+)
+from .models import OptimalDecision
+from ai.ml_service import predict_ml004_decision
 
 class UploadPlantImageView(APIView):
     permission_classes = [IsAuthenticated]
@@ -60,13 +66,12 @@ class AnalyzePlantImageView(APIView):
 
     def post(self, request):
         plant_id = request.data.get('plant_id')
-        image_url = request.data.get('image_url')
-        reference_object_cm = request.data.get('reference_object_cm', 9)
+        image_url = request.data.get('image_url')  # opsiyonel
 
-        if not plant_id or not image_url:
+        if not plant_id:
             return Response({
                 "status": "error",
-                "message": "plant_id ve image_url zorunludur."
+                "message": "plant_id zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -77,8 +82,17 @@ class AnalyzePlantImageView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        temp_image_path = None
+        # image_url boşsa DB'den son görüntüyü al
+        if not image_url:
+            last_image = PlantImage.objects.filter(plant=plant).order_by('-uploaded_at').first()
+            if not last_image:
+                return Response({
+                    "status": "error",
+                    "message": "Bu bitkiye ait görüntü bulunamadı. Lütfen önce görüntü yükleyin."
+                }, status=status.HTTP_404_NOT_FOUND)
+            image_url = request.build_absolute_uri(last_image.image.url)
 
+        temp_image_path = None
         try:
             import requests
 
@@ -91,53 +105,28 @@ class AnalyzePlantImageView(APIView):
                         tmp.write(chunk)
                 temp_image_path = tmp.name
 
-            # 1) Tür tespiti
-            species_result = predict_plant_species(image_path=temp_image_path)
-
-            # 2) Sağlık tespiti
             health_result = predict_plant_health(image_path=temp_image_path)
 
-            # 3) Boy tespiti
-            height_result = predict_plant_height(
-                image_path=temp_image_path,
-                reference_object_cm=float(reference_object_cm)
-            )
-
-            # DB'ye tek analiz sonucu olarak kaydet
             result = AnalysisResult.objects.create(
                 plant=plant,
-                species_prediction=species_result["predicted_species"],
                 health_status=health_result["health_status"],
                 disease_detected=health_result["disease_detected"],
                 disease_name=health_result["disease_name"],
-                estimated_height_cm=height_result["estimated_height_cm"],
                 confidence=health_result["confidence"],
             )
 
             return Response({
                 "status": "success",
                 "data": {
-                    "analysis_id": result.id,
                     "plant_id": plant.id,
-
-                    "species_prediction": species_result["predicted_species"],
-                    "species_confidence": species_result["confidence"],
-                    "species_top_predictions": species_result["top_predictions"],
-
                     "health_status": health_result["health_status"],
                     "disease_detected": health_result["disease_detected"],
                     "disease_name": health_result["disease_name"],
-                    "health_confidence": health_result["confidence"],
-                    "health_top_predictions": health_result["top_predictions"],
-
-                    "estimated_height_cm": height_result["estimated_height_cm"],
-                    "height_confidence": height_result["confidence"],
-
-                    "models": {
-                        "species_model": species_result["model_version"],
-                        "health_model": health_result["model_version"],
-                        "height_model": height_result["model_version"]
-                    }
+                    "confidence": health_result["confidence"],
+                    "top_predictions": health_result["top_predictions"],
+                    "model_version": health_result["model_version"],
+                    "analysis_id": result.id,
+                    "image_url": image_url,
                 }
             }, status=status.HTTP_200_OK)
 
@@ -174,6 +163,7 @@ class MeasurePlantHeightView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
+        temp_image_path = None
         try:
             import requests
 
@@ -191,7 +181,6 @@ class MeasurePlantHeightView(APIView):
                 reference_object_cm=float(reference_object_cm)
             )
 
-            # İstersen sonucu DB'ye de kaydedebiliriz
             analysis = AnalysisResult.objects.create(
                 plant=plant,
                 estimated_height_cm=result["estimated_height_cm"],
@@ -217,8 +206,9 @@ class MeasurePlantHeightView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         finally:
-            if 'temp_image_path' in locals() and temp_image_path and os.path.exists(temp_image_path):
+            if temp_image_path and os.path.exists(temp_image_path):
                 os.remove(temp_image_path)
+
 
 class MeasurePlantHeightLiveView(APIView):
     permission_classes = [IsAuthenticated]
@@ -235,7 +225,6 @@ class MeasurePlantHeightLiveView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         temp_image_path = None
-
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                 for chunk in image_file.chunks():
@@ -261,6 +250,7 @@ class MeasurePlantHeightLiveView(APIView):
         finally:
             if temp_image_path and os.path.exists(temp_image_path):
                 os.remove(temp_image_path)
+
 
 class AnalyzeGrowthView(APIView):
     permission_classes = [IsAuthenticated]
@@ -351,6 +341,7 @@ class ClassifyPlantSpeciesView(APIView):
         finally:
             if temp_image_path and os.path.exists(temp_image_path):
                 os.remove(temp_image_path)
+
 
 class GetAIAnalysisResultView(APIView):
     permission_classes = [IsAuthenticated]
@@ -474,4 +465,139 @@ class MemberAIChatView(APIView):
             "data": {
                 "answer": "Yaprakların sararması genellikle fazla sulama veya düşük ışık seviyesinden kaynaklanabilir. Toprak nem seviyesini kontrol etmeniz önerilir."
             }
+        }, status=status.HTTP_200_OK)
+
+
+class GetSimulationResultsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pot_id):
+        try:
+            pot = Pot.objects.get(
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # En son sensör verisini al
+        sensor = SensorReading.objects.filter(pot=pot).order_by('-recorded_at').first()
+        if not sensor:
+            return Response({
+                "status": "error",
+                "message": "Bu saksıya ait sensör verisi bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Saksıya bağlı bitkiyi bul
+        plant = pot.plants.order_by('-created_at').first()
+        if not plant:
+            return Response({
+                "status": "error",
+                "message": "Bu saksıya ait bitki bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Son sulama günü ve bitki yaşı hesapla
+        last_watering_day = (timezone.now() - sensor.recorded_at).days
+        plant_age_days = (timezone.now().date() - plant.created_at.date()).days
+
+        try:
+            result = predict_simulation(
+                temperature=float(sensor.temperature),
+                humidity=float(sensor.humidity),
+                soil_moisture=float(sensor.soil_moisture),
+                light=float(sensor.light),
+                water_level=float(sensor.water_level),
+                ph=float(getattr(sensor, 'ph', 7.0)),
+                last_watering_day=last_watering_day,
+                plant_age_days=plant_age_days,
+            )
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Simülasyon başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Yeni sonucu kaydet
+        SimulationResult.objects.create(
+            pot=pot,
+            predicted_growth_cm=result["predicted_growth_cm"],
+            recommended_watering_ml=result["recommended_watering_ml"],
+            confidence=result["confidence"],
+            simulation_time=timezone.now(),
+        )
+
+        # Son 10 sonucu döndür
+        history = SimulationResult.objects.filter(pot=pot).order_by('-simulation_time')[:10]
+
+        return Response({
+            "status": "success",
+            "data": {
+                "pot_id": pot.id,
+                "simulation_results": [
+                    {
+                        "predicted_growth_cm": s.predicted_growth_cm,
+                        "recommended_watering_ml": s.recommended_watering_ml,
+                        "confidence": s.confidence,
+                        "simulation_time": s.simulation_time,
+                    }
+                    for s in history
+                ]
+            }
+        }, status=status.HTTP_200_OK)
+    
+
+class GetML004AnalysisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        pot_id       = request.data.get('pot_id')
+        soil_moisture = request.data.get('soil_moisture')
+        temperature   = request.data.get('temperature')
+        light         = request.data.get('light')
+        air_humidity  = request.data.get('air_humidity')
+
+        if not all([pot_id, soil_moisture, temperature, light, air_humidity]):
+            return Response({
+                "status": "error",
+                "message": "pot_id, soil_moisture, temperature, light ve air_humidity zorunludur."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pot = Pot.objects.get(
+                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+            )
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            result = predict_ml004_decision(
+                soil_moisture=float(soil_moisture),
+                temperature=float(temperature),
+                light=float(light),
+                air_humidity=float(air_humidity),
+            )
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"ML-004 analizi başarısız: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Kararı kaydet
+        OptimalDecision.objects.create(
+            pot=pot,
+            watering_needed=result["watering_needed"],
+            recommended_watering_ml=result["recommended_watering_ml"],
+            light_adjustment=result["light_adjustment"],
+            temperature_adjustment=result["temperature_adjustment"],
+            confidence=result["confidence"],
+        )
+
+        return Response({
+            "status": "success",
+            "data": result
         }, status=status.HTTP_200_OK)
