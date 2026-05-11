@@ -91,11 +91,20 @@ class SendSimulationResultsView(APIView):
 
     def post(self, request):
         pot_id = request.data.get('pot_id')
+        simulation_time = request.data.get('simulation_time')
+        total_pots = request.data.get('total_pots')
+        results = request.data.get('results', [])
 
         if not pot_id:
             return Response({
                 "status": "error",
                 "message": "pot_id gerekli."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not results:
+            return Response({
+                "status": "error",
+                "message": "results listesi boş olamaz."
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -106,18 +115,23 @@ class SendSimulationResultsView(APIView):
                 "message": "Saksı bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        result = SimulationResult.objects.create(
-            pot=pot,
-            predicted_growth_cm=request.data.get('predicted_growth_cm'),
-            recommended_watering_ml=request.data.get('recommended_watering_ml'),
-            confidence=request.data.get('confidence'),
-        )
+        saved = []
+        for item in results:
+            result = SimulationResult.objects.create(
+                pot=pot,
+                health_score=item.get('health_score'),
+                water_level=item.get('water_level'),
+                stress_level=item.get('stress_level'),
+                growth_stage=item.get('growth_stage'),
+                is_dead=item.get('is_dead', False),
+                total_pots=total_pots,
+                simulation_time=simulation_time,  # ISO string Django otomatik parse eder
+            )
+            saved.append(result)
 
-        serializer = SimulationResultSerializer(result)
         return Response({
             "status": "success",
-            "message": "Simulation results saved successfully",
-            "data": serializer.data
+            "message": "Simulation results saved successfully"
         }, status=status.HTTP_201_CREATED)
 
 

@@ -21,11 +21,28 @@ class StateMachineConfig(models.Model):
 
 
 class SimulationResult(models.Model):
+    GROWTH_STAGE_CHOICES = (
+        ('healthy_growth', 'Healthy Growth'),
+        ('stressed_growth', 'Stressed Growth'),
+        ('critical', 'Critical'),
+    )
+
     pot = models.ForeignKey(Pot, on_delete=models.CASCADE, related_name='simulation_results')
-    predicted_growth_cm = models.FloatField(blank=True, null=True)
-    recommended_watering_ml = models.FloatField(blank=True, null=True)
-    confidence = models.FloatField(blank=True, null=True)
-    simulation_time = models.DateTimeField(auto_now_add=True)
+    
+    # Yeni Unity field'ları
+    health_score = models.FloatField(blank=True, null=True)        # 0.0 - 1.0
+    water_level = models.FloatField(blank=True, null=True)
+    stress_level = models.FloatField(blank=True, null=True)        # 0.0 - 1.0
+    growth_stage = models.CharField(
+        max_length=20, 
+        choices=GROWTH_STAGE_CHOICES, 
+        blank=True, null=True
+    )
+    is_dead = models.BooleanField(default=False)
+    total_pots = models.IntegerField(blank=True, null=True)
+    
+    # simulation_time artık Unity'den geliyor, auto_now_add kaldırıldı
+    simulation_time = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

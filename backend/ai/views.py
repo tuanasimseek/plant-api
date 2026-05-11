@@ -1,27 +1,35 @@
 import os
 import tempfile
+
 from django.db.models import Q
 from django.utils import timezone
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
-from .models import PlantImage, AnalysisResult
-from ml.models import SimulationResult
-from .serializers import PlantImageSerializer, AnalysisResultSerializer
-from plants.models import Plant
-from pots.models import Pot
-from sensors.models import SensorReading
+
+from .models import PlantImage, AnalysisResult, OptimalDecision
 from .ml_service import (
     predict_plant_height,
     predict_plant_species,
     predict_plant_health,
     predict_simulation,
-    predict_ml004_decision
+    predict_ml004_decision,
 )
-from .models import OptimalDecision
-from ai.ml_service import predict_ml004_decision
+
+from ml.models import SimulationResult
+from plants.models import Plant
+from pots.models import Pot
+from sensors.models import SensorReading
+
+
+def get_user_pot_for_plant(plant, user):
+    return Pot.objects.filter(
+        Q(plant=plant) & (Q(owner=user) | Q(allowed_users=user))
+    ).distinct().first()
+
 
 class UploadPlantImageView(APIView):
     permission_classes = [IsAuthenticated]
@@ -36,7 +44,8 @@ class UploadPlantImageView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        image_file = request.FILES.get('image')
+        image_file = request.FILES.get("image")
+
         if not image_file:
             return Response({
                 "status": "error",
@@ -46,8 +55,8 @@ class UploadPlantImageView(APIView):
         plant_image = PlantImage.objects.create(
             plant=plant,
             image=image_file,
-            source=request.data.get('source'),
-            captured_at=request.data.get('captured_at'),
+            source=request.data.get("source"),
+            captured_at=request.data.get("captured_at"),
         )
 
         return Response({
@@ -65,8 +74,8 @@ class AnalyzePlantImageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        plant_id = request.data.get('plant_id')
-        image_url = request.data.get('image_url')  # opsiyonel
+        plant_id = request.data.get("plant_id")
+        image_url = request.data.get("image_url")
 
         if not plant_id:
             return Response({
@@ -82,17 +91,29 @@ class AnalyzePlantImageView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # image_url boşsa DB'den son görüntüyü al
+        pot = get_user_pot_for_plant(plant, request.user)
+
+        if not pot:
+            return Response({
+                "status": "error",
+                "message": "Bu bitkiye bağlı saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
         if not image_url:
-            last_image = PlantImage.objects.filter(plant=plant).order_by('-uploaded_at').first()
+            last_image = PlantImage.objects.filter(
+                plant=plant
+            ).order_by("-uploaded_at").first()
+
             if not last_image:
                 return Response({
                     "status": "error",
                     "message": "Bu bitkiye ait görüntü bulunamadı. Lütfen önce görüntü yükleyin."
                 }, status=status.HTTP_404_NOT_FOUND)
+
             image_url = request.build_absolute_uri(last_image.image.url)
 
         temp_image_path = None
+
         try:
             import requests
 
@@ -108,6 +129,7 @@ class AnalyzePlantImageView(APIView):
             health_result = predict_plant_health(image_path=temp_image_path)
 
             result = AnalysisResult.objects.create(
+                pot=pot,
                 plant=plant,
                 health_status=health_result["health_status"],
                 disease_detected=health_result["disease_detected"],
@@ -118,13 +140,14 @@ class AnalyzePlantImageView(APIView):
             return Response({
                 "status": "success",
                 "data": {
+                    "pot_id": pot.id,
                     "plant_id": plant.id,
                     "health_status": health_result["health_status"],
                     "disease_detected": health_result["disease_detected"],
                     "disease_name": health_result["disease_name"],
                     "confidence": health_result["confidence"],
-                    "top_predictions": health_result["top_predictions"],
-                    "model_version": health_result["model_version"],
+                    "top_predictions": health_result.get("top_predictions"),
+                    "model_version": health_result.get("model_version"),
                     "analysis_id": result.id,
                     "image_url": image_url,
                 }
@@ -145,9 +168,9 @@ class MeasurePlantHeightView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        plant_id = request.data.get('plant_id')
-        image_url = request.data.get('image_url')
-        reference_object_cm = request.data.get('reference_object_cm', 9)
+        plant_id = request.data.get("plant_id")
+        image_url = request.data.get("image_url")
+        reference_object_cm = request.data.get("reference_object_cm", 9)
 
         if not plant_id or not image_url:
             return Response({
@@ -163,7 +186,16 @@ class MeasurePlantHeightView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
+        pot = get_user_pot_for_plant(plant, request.user)
+
+        if not pot:
+            return Response({
+                "status": "error",
+                "message": "Bu bitkiye bağlı saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
         temp_image_path = None
+
         try:
             import requests
 
@@ -182,6 +214,7 @@ class MeasurePlantHeightView(APIView):
             )
 
             analysis = AnalysisResult.objects.create(
+                pot=pot,
                 plant=plant,
                 estimated_height_cm=result["estimated_height_cm"],
                 confidence=result["confidence"],
@@ -191,10 +224,11 @@ class MeasurePlantHeightView(APIView):
             return Response({
                 "status": "success",
                 "data": {
+                    "pot_id": pot.id,
                     "plant_id": plant.id,
                     "estimated_height_cm": result["estimated_height_cm"],
                     "confidence": result["confidence"],
-                    "model_version": result["model_version"],
+                    "model_version": result.get("model_version"),
                     "analysis_id": analysis.id,
                 }
             }, status=status.HTTP_200_OK)
@@ -215,8 +249,8 @@ class MeasurePlantHeightLiveView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        image_file = request.FILES.get('image')
-        reference_object_cm = request.data.get('reference_object_cm', 9)
+        image_file = request.FILES.get("image")
+        reference_object_cm = request.data.get("reference_object_cm", 9)
 
         if not image_file:
             return Response({
@@ -225,6 +259,7 @@ class MeasurePlantHeightLiveView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         temp_image_path = None
+
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                 for chunk in image_file.chunks():
@@ -256,9 +291,9 @@ class AnalyzeGrowthView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        plant_id = request.data.get('plant_id')
-        current_image_url = request.data.get('current_image_url')
-        previous_image_url = request.data.get('previous_image_url')
+        plant_id = request.data.get("plant_id")
+        current_image_url = request.data.get("current_image_url")
+        previous_image_url = request.data.get("previous_image_url")
 
         if not plant_id or not current_image_url or not previous_image_url:
             return Response({
@@ -266,7 +301,6 @@ class AnalyzeGrowthView(APIView):
                 "message": "plant_id, current_image_url ve previous_image_url zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # ML modeli hazır olunca buraya entegre edilecek
         return Response({
             "status": "success",
             "data": {
@@ -282,8 +316,8 @@ class ClassifyPlantSpeciesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        plant_id = request.data.get('plant_id')
-        image_url = request.data.get('image_url')
+        plant_id = request.data.get("plant_id")
+        image_url = request.data.get("image_url")
 
         if not plant_id or not image_url:
             return Response({
@@ -299,7 +333,16 @@ class ClassifyPlantSpeciesView(APIView):
                 "message": "Bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
+        pot = get_user_pot_for_plant(plant, request.user)
+
+        if not pot:
+            return Response({
+                "status": "error",
+                "message": "Bu bitkiye bağlı saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
         temp_image_path = None
+
         try:
             import requests
 
@@ -314,7 +357,8 @@ class ClassifyPlantSpeciesView(APIView):
 
             result = predict_plant_species(image_path=temp_image_path)
 
-            AnalysisResult.objects.create(
+            analysis = AnalysisResult.objects.create(
+                pot=pot,
                 plant=plant,
                 species_prediction=result["predicted_species"],
                 confidence=result["confidence"],
@@ -324,11 +368,13 @@ class ClassifyPlantSpeciesView(APIView):
             return Response({
                 "status": "success",
                 "data": {
+                    "pot_id": pot.id,
                     "plant_id": plant.id,
                     "plant_species": result["predicted_species"],
                     "confidence": result["confidence"],
-                    "top_predictions": result["top_predictions"],
-                    "model_version": result["model_version"]
+                    "top_predictions": result.get("top_predictions"),
+                    "model_version": result.get("model_version"),
+                    "analysis_id": analysis.id,
                 }
             }, status=status.HTTP_200_OK)
 
@@ -347,17 +393,20 @@ class GetAIAnalysisResultView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pot_id):
-        try:
-            pot = Pot.objects.get(
-                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
-            )
-        except Pot.DoesNotExist:
+        pot = Pot.objects.filter(
+            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+        ).distinct().first()
+
+        if not pot:
             return Response({
                 "status": "error",
                 "message": "Saksı bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        result = AnalysisResult.objects.filter(pot=pot).order_by('-analyzed_at').first()
+        result = AnalysisResult.objects.filter(
+            pot=pot
+        ).order_by("-analyzed_at").first()
+
         if not result:
             return Response({
                 "status": "error",
@@ -391,8 +440,11 @@ class GetPlantHealthHistoryView(APIView):
 
         history = AnalysisResult.objects.filter(
             plant=plant
-        ).order_by('-analyzed_at').values(
-            'analyzed_at', 'health_status', 'disease_name', 'estimated_height_cm'
+        ).order_by("-analyzed_at").values(
+            "analyzed_at",
+            "health_status",
+            "disease_name",
+            "estimated_height_cm"
         )
 
         return Response({
@@ -409,7 +461,8 @@ class GuestAIScanView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        image_file = request.FILES.get('image')
+        image_file = request.FILES.get("image")
+
         if not image_file:
             return Response({
                 "status": "error",
@@ -417,6 +470,7 @@ class GuestAIScanView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         temp_image_path = None
+
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                 for chunk in image_file.chunks():
@@ -430,8 +484,8 @@ class GuestAIScanView(APIView):
                 "data": {
                     "plant": result["predicted_species"],
                     "confidence": result["confidence"],
-                    "top_predictions": result["top_predictions"],
-                    "model_version": result["model_version"]
+                    "top_predictions": result.get("top_predictions"),
+                    "model_version": result.get("model_version")
                 }
             }, status=status.HTTP_200_OK)
 
@@ -450,8 +504,7 @@ class MemberAIChatView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        plant_id = request.data.get('plant_id')
-        question = request.data.get('question')
+        question = request.data.get("question")
 
         if not question:
             return Response({
@@ -459,7 +512,6 @@ class MemberAIChatView(APIView):
                 "message": "Soru zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # AI chat modeli hazır olunca buraya entegre edilecek
         return Response({
             "status": "success",
             "data": {
@@ -472,33 +524,34 @@ class GetSimulationResultsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pot_id):
-        try:
-            pot = Pot.objects.get(
-                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
-            )
-        except Pot.DoesNotExist:
+        pot = Pot.objects.filter(
+            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+        ).distinct().first()
+
+        if not pot:
             return Response({
                 "status": "error",
                 "message": "Saksı bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # En son sensör verisini al
-        sensor = SensorReading.objects.filter(pot=pot).order_by('-recorded_at').first()
+        sensor = SensorReading.objects.filter(
+            pot=pot
+        ).order_by("-recorded_at").first()
+
         if not sensor:
             return Response({
                 "status": "error",
                 "message": "Bu saksıya ait sensör verisi bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # Saksıya bağlı bitkiyi bul
-        plant = pot.plants.order_by('-created_at').first()
+        plant = pot.plant
+
         if not plant:
             return Response({
                 "status": "error",
                 "message": "Bu saksıya ait bitki bulunamadı."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # Son sulama günü ve bitki yaşı hesapla
         last_watering_day = (timezone.now() - sensor.recorded_at).days
         plant_age_days = (timezone.now().date() - plant.created_at.date()).days
 
@@ -509,7 +562,7 @@ class GetSimulationResultsView(APIView):
                 soil_moisture=float(sensor.soil_moisture),
                 light=float(sensor.light),
                 water_level=float(sensor.water_level),
-                ph=float(getattr(sensor, 'ph', 7.0)),
+                ph=float(getattr(sensor, "ph", 7.0)),
                 last_watering_day=last_watering_day,
                 plant_age_days=plant_age_days,
             )
@@ -519,7 +572,6 @@ class GetSimulationResultsView(APIView):
                 "message": f"Simülasyon başarısız: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Yeni sonucu kaydet
         SimulationResult.objects.create(
             pot=pot,
             predicted_growth_cm=result["predicted_growth_cm"],
@@ -528,8 +580,9 @@ class GetSimulationResultsView(APIView):
             simulation_time=timezone.now(),
         )
 
-        # Son 10 sonucu döndür
-        history = SimulationResult.objects.filter(pot=pot).order_by('-simulation_time')[:10]
+        history = SimulationResult.objects.filter(
+            pot=pot
+        ).order_by("-simulation_time")[:10]
 
         return Response({
             "status": "success",
@@ -546,17 +599,17 @@ class GetSimulationResultsView(APIView):
                 ]
             }
         }, status=status.HTTP_200_OK)
-    
+
 
 class GetML004AnalysisView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        pot_id       = request.data.get('pot_id')
-        soil_moisture = request.data.get('soil_moisture')
-        temperature   = request.data.get('temperature')
-        light         = request.data.get('light')
-        air_humidity  = request.data.get('air_humidity')
+        pot_id = request.data.get("pot_id")
+        soil_moisture = request.data.get("soil_moisture")
+        temperature = request.data.get("temperature")
+        light = request.data.get("light")
+        air_humidity = request.data.get("air_humidity")
 
         if not all([pot_id, soil_moisture, temperature, light, air_humidity]):
             return Response({
@@ -564,11 +617,11 @@ class GetML004AnalysisView(APIView):
                 "message": "pot_id, soil_moisture, temperature, light ve air_humidity zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            pot = Pot.objects.get(
-                Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
-            )
-        except Pot.DoesNotExist:
+        pot = Pot.objects.filter(
+            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+        ).distinct().first()
+
+        if not pot:
             return Response({
                 "status": "error",
                 "message": "Saksı bulunamadı."
@@ -587,7 +640,6 @@ class GetML004AnalysisView(APIView):
                 "message": f"ML-004 analizi başarısız: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Kararı kaydet
         OptimalDecision.objects.create(
             pot=pot,
             watering_needed=result["watering_needed"],

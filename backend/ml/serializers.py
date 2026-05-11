@@ -58,15 +58,11 @@ class StateMachineConfigSerializer(serializers.ModelSerializer):
 class SimulationResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = SimulationResult
-        fields = (
-            'id',
-            'predicted_growth_cm',
-            'recommended_watering_ml',
-            'confidence',
-            'simulation_time',
-            'created_at'
-        )
-
+        fields = [
+            'id', 'pot', 'health_score', 'water_level', 
+            'stress_level', 'growth_stage', 'is_dead',
+            'total_pots', 'simulation_time', 'created_at'
+        ]
 
 class OptimalDecisionSerializer(serializers.ModelSerializer):
     class Meta:
