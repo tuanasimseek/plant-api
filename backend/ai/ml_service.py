@@ -7,16 +7,9 @@ from tensorflow.keras.preprocessing import image as keras_image
 from tensorflow import keras
 import joblib
 
-
-# =======================
-# BASE DIR
-# =======================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-
-# =======================
 # BOY TESPİTİ MODELİ (YOLO)
-# =======================
 MODEL_PATH = os.path.join(BASE_DIR, "models_ai", "best.pt")
 model = YOLO(MODEL_PATH)
 print("Model yüklendi:", MODEL_PATH)
@@ -74,9 +67,7 @@ def predict_plant_height(image_path, reference_object_cm=9):
     }
 
 
-# =======================
 # TÜR TESPİTİ MODELİ (Keras)
-# =======================
 CONFIG_PATH = os.path.join(BASE_DIR, "models_ai", "plant_classifier", "en_iyi_model.keras", "config.json")
 WEIGHTS_PATH = os.path.join(BASE_DIR, "models_ai", "plant_classifier", "en_iyi_model.keras", "model.weights.h5")
 CLASS_INDICES_PATH = os.path.join(BASE_DIR, "models_ai", "plant_classifier", "class_indices.json")
@@ -120,9 +111,7 @@ def predict_plant_species(image_path, top_k=3):
     }
 
 
-# =======================
 # SAĞLIK TESPİTİ MODELİ (Keras)
-# =======================
 HEALTH_MODEL_PATH = os.path.join(BASE_DIR, "models_ai", "bitki_saglik_modeli.h5")
 HEALTH_CLASS_INDICES_PATH = os.path.join(BASE_DIR, "models_ai", "health_class_indices.json")
 
@@ -185,10 +174,7 @@ def predict_plant_health(image_path, top_k=3):
     }
 
 
-# =======================
 # SİMÜLASYON MODELİ (joblib / sklearn)
-# =======================
-
 SIMULATION_MODEL_PATH = os.path.join(BASE_DIR, "models_ai", "plant_ml_model.pkl")
 SIMULATION_SCALER_PATH = os.path.join(BASE_DIR, "models_ai", "plant_scaler.pkl")
 
@@ -224,10 +210,7 @@ def predict_simulation(temperature, humidity, soil_moisture, light,
         "confidence": 0.85,
     }
 
-# =======================
 # ML-004 OPTİMAL KARAR MODELİ (joblib / sklearn)
-# =======================
-
 ML004_SCALER_PATH     = os.path.join(BASE_DIR, "models_ai", "ml004_scaler.pkl")
 ML004_CLF_LIGHT_PATH  = os.path.join(BASE_DIR, "models_ai", "ml004_clf_light.pkl")
 ML004_CLF_TEMP_PATH   = os.path.join(BASE_DIR, "models_ai", "ml004_clf_temp.pkl")
@@ -258,9 +241,7 @@ def predict_ml004_decision(soil_moisture, temperature, light, air_humidity):
         ml004_clf_temp.predict(features_scaled)
     )[0]
 
-    # le_water yok, classifier çıktısını direkt kullan
     water_pred = int(ml004_clf_water.predict(features_scaled)[0])
-    # 0 → sulama gerekli, 1 → gerekli değil (modelinin etiketine göre değişir)
     watering_needed = water_pred == 0
 
     recommended_ml = float(ml004_reg.predict(features_scaled)[0])

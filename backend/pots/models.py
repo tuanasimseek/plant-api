@@ -48,3 +48,22 @@ class Pot(models.Model):
 
     def __str__(self):
         return self.nickname or f"Pot {self.id}"
+    
+class FuzzyLog(models.Model):
+    pot = models.ForeignKey(
+        Pot,
+        on_delete=models.CASCADE,
+        related_name='fuzzy_logs'
+    )
+    recorded_at = models.DateTimeField()
+    memberships = models.JSONField()
+    firing_rules = models.JSONField()
+    centroid = models.FloatField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-recorded_at']
+
+    def __str__(self):
+        return f"FuzzyLog Pot {self.pot.id} - {self.recorded_at}"

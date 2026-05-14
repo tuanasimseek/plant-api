@@ -262,8 +262,8 @@ class GetNewConfigView(APIView):
             "status": "success",
             "data": {
                 "pot_id": pot.id,
-                "device_db_id": device.id,        # eklendi
-                "device_code": device.device_code, # eklendi
+                "device_db_id": device.id,       
+                "device_code": device.device_code, 
                 "moisture_threshold": pot.moisture_threshold,
                 "watering_duration_ms": pot.watering_duration_ms,
                 "sleep_interval_min": pot.sleep_interval_min,

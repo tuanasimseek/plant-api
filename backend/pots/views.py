@@ -6,9 +6,11 @@ from rest_framework.permissions import IsAuthenticated
 import secrets
 
 from .models import Pot
-from .serializers import PotSerializer, PotDetailSerializer, MyPotSerializer
 from devices.models import Device
 from plants.models import Plant
+
+from .models import Pot, FuzzyLog
+from .serializers import PotSerializer, PotDetailSerializer, MyPotSerializer, FuzzyLogSerializer
 
 
 class VerifyPotQRView(APIView):
@@ -36,8 +38,8 @@ class VerifyPotQRView(APIView):
             "status": "success",
             "data": {
                 "pot_id": pot.id if pot else None,
-                "device_db_id": device.id,           # DB'deki integer id
-                "device_code": device.device_code,   # "pot_harun" gibi string
+                "device_db_id": device.id,          
+                "device_code": device.device_code,  
                 "model": device.model,
                 "activated": pot.is_active if pot else False
             }
@@ -264,6 +266,89 @@ class MyPotsView(APIView):
     def get(self, request):
         pots = Pot.objects.filter(owner=request.user).select_related('plant', 'device')
         serializer = MyPotSerializer(pots, many=True)
+        return Response({
+            "status": "success",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+class FuzzyLogCreateView(APIView):
+    permission_classes = []
+
+    def post(self, request, pot_id):
+        device_token = request.headers.get('X-Device-Token')
+
+        if not device_token:
+            return Response({
+                "status": "error",
+                "message": "X-Device-Token zorunludur."
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            pot = Pot.objects.select_related('device').get(id=pot_id)
+        except Pot.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        if pot.device.device_token != device_token:
+            return Response({
+                "status": "error",
+                "message": "Device token geçersiz."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        recorded_at = request.data.get('recorded_at')
+        memberships = request.data.get('memberships')
+        firing_rules = request.data.get('firing_rules')
+        centroid = request.data.get('centroid')
+
+        if not recorded_at or memberships is None or firing_rules is None or centroid is None:
+            return Response({
+                "status": "error",
+                "message": "recorded_at, memberships, firing_rules ve centroid zorunludur."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        fuzzy_log = FuzzyLog.objects.create(
+            pot=pot,
+            recorded_at=recorded_at,
+            memberships=memberships,
+            firing_rules=firing_rules,
+            centroid=centroid
+        )
+
+        serializer = FuzzyLogSerializer(fuzzy_log)
+
+        return Response({
+            "status": "success",
+            "message": "Fuzzy log saved successfully",
+            "data": serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+
+class FuzzyLatestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pot_id):
+        pot = Pot.objects.filter(
+            Q(id=pot_id) & (Q(owner=request.user) | Q(allowed_users=request.user))
+        ).distinct().first()
+
+        if not pot:
+            return Response({
+                "status": "error",
+                "message": "Saksı bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        fuzzy_log = FuzzyLog.objects.filter(pot=pot).order_by('-recorded_at').first()
+
+        if not fuzzy_log:
+            return Response({
+                "status": "error",
+                "message": "Bu saksıya ait fuzzy log bulunamadı."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = FuzzyLogSerializer(fuzzy_log)
+
         return Response({
             "status": "success",
             "data": serializer.data

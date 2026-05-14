@@ -7,6 +7,8 @@ from .views import (
     PotListView,
     PotDetailView,
     MyPotsView,
+    FuzzyLogCreateView,
+    FuzzyLatestView,
 )
 
 urlpatterns = [
@@ -17,4 +19,6 @@ urlpatterns = [
     path('pots', PotListView.as_view(), name='pot-list'),
     path('pots/<int:pot_id>', PotDetailView.as_view(), name='pot-detail'),
     path('pots/<int:pot_id>/plant', AssignPlantToPotView.as_view(), name='assign-plant'),
+    path('pots/<int:pot_id>/fuzzy/log', FuzzyLogCreateView.as_view(), name='fuzzy-log-create'),
+    path('pots/<int:pot_id>/fuzzy/latest', FuzzyLatestView.as_view(), name='fuzzy-latest'),
 ]

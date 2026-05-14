@@ -125,7 +125,7 @@ class SendSimulationResultsView(APIView):
                 growth_stage=item.get('growth_stage'),
                 is_dead=item.get('is_dead', False),
                 total_pots=total_pots,
-                simulation_time=simulation_time,  # ISO string Django otomatik parse eder
+                simulation_time=simulation_time,  
             )
             saved.append(result)
 

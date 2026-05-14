@@ -28,11 +28,9 @@ class SimulationResult(models.Model):
     )
 
     pot = models.ForeignKey(Pot, on_delete=models.CASCADE, related_name='simulation_results')
-    
-    # Yeni Unity field'ları
-    health_score = models.FloatField(blank=True, null=True)        # 0.0 - 1.0
+    health_score = models.FloatField(blank=True, null=True)       
     water_level = models.FloatField(blank=True, null=True)
-    stress_level = models.FloatField(blank=True, null=True)        # 0.0 - 1.0
+    stress_level = models.FloatField(blank=True, null=True)      
     growth_stage = models.CharField(
         max_length=20, 
         choices=GROWTH_STAGE_CHOICES, 
@@ -40,8 +38,6 @@ class SimulationResult(models.Model):
     )
     is_dead = models.BooleanField(default=False)
     total_pots = models.IntegerField(blank=True, null=True)
-    
-    # simulation_time artık Unity'den geliyor, auto_now_add kaldırıldı
     simulation_time = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
