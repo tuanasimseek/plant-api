@@ -177,6 +177,10 @@ class MeasurePlantHeightView(APIView):
                 "status": "error",
                 "message": "plant_id ve image_url zorunludur."
             }, status=status.HTTP_400_BAD_REQUEST)
+        if image_url.startswith("/media/"):
+            image_url = request.build_absolute_uri(image_url)
+
+        print("FINAL IMAGE URL:", image_url)
 
         try:
             plant = Plant.objects.get(id=plant_id)
@@ -234,6 +238,9 @@ class MeasurePlantHeightView(APIView):
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+
             return Response({
                 "status": "error",
                 "message": f"Boy ölçümü başarısız: {str(e)}"
